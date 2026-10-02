@@ -12,8 +12,8 @@ with sync_playwright() as p:
     try:
         page.goto(api_url, wait_until="domcontentloaded", timeout=15000)
         
-        # 페이지 텍스트 가져오기 (JSON)
-        response_text = page.text_content()
+        # 👇 수정: body 선택자 추가
+        response_text = page.locator("body").text_content()
         
         # JSON 파싱
         data = json.loads(response_text)
