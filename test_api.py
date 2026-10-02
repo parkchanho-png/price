@@ -11,11 +11,10 @@ def get_price():
         page = browser.new_page()
         
         try:
-            # API URL 직접 접속 (HTML이 아니라 JSON 반환)
             page.goto(api_url, wait_until="domcontentloaded", timeout=30000)
             
-            # 페이지 내용 추출 (JSON)
-            content = page.text_content()
+            # 👇 수정: body 선택자 추가
+            content = page.locator('body').text_content()
             
             # JSON 파싱
             data = json.loads(content)
@@ -26,6 +25,8 @@ def get_price():
             
         except Exception as e:
             print(f"❌ 에러: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
         
         finally:
