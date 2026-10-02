@@ -1,23 +1,28 @@
-import requests
+from playwright.sync_api import sync_playwright
 import json
 
 api_url = "https://mart.baemin.com/api/v3/goods?goodsIds=29605"
 
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept": "application/json",
-    "Referer": "https://mart.baemin.com/goods/detail/29605",
-    "Accept-Language": "ko-KR,ko;q=0.9"
-}
+print("🔄 Playwright로 API 호출 중...")
 
-print("🔄 배민상회 API 호출 중...")
-response = requests.get(api_url, headers=headers, timeout=10)
-
-print(f"📊 상태 코드: {response.status_code}")
-
-if response.status_code == 200:
-    data = response.json()
-    price = data["data"]["content"][0]["goodsPrice"]
-    print(f"✅ 가격: {price:,}원")
-else:
-    print(f"❌ API 실패: {response.status_code}")
+with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True)
+    page = browser.new_page()
+    
+    try:
+        page.goto(api_url, wait_until="domcontentloaded", timeout=15000)
+        
+        # 페이지 텍스트 가져오기 (JSON)
+        response_text = page.text_content()
+        
+        # JSON 파싱
+        data = json.loads(response_text)
+        price = data["data"]["content"][0]["goodsPrice"]
+        
+        print(f"✅ 가격: {price:,}원")
+        
+    except Exception as e:
+        print(f"❌ 에러: {str(e)}")
+    
+    finally:
+        browser.close()
