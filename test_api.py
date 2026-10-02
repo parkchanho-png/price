@@ -10,16 +10,18 @@ with sync_playwright() as p:
     page = browser.new_page()
     
     try:
-        page.goto(api_url, wait_until="domcontentloaded", timeout=15000)
+        # 네트워크 응답 가로채기
+        def handle_response(response):
+            if "goodsIds" in response.url and response.status == 200:
+                print(f"✅ 응답 URL: {response.url}")
+                data = response.json()
+                price = data["data"]["content"][0]["goodsPrice"]
+                print(f"✅ 가격: {price:,}원")
         
-        # 👇 수정: body 선택자 추가
-        response_text = page.locator("body").text_content()
+        page.on("response", handle_response)
+        page.goto("https://mart.baemin.com/goods/detail/29605", wait_until="networkidle", timeout=15000)
         
-        # JSON 파싱
-        data = json.loads(response_text)
-        price = data["data"]["content"][0]["goodsPrice"]
-        
-        print(f"✅ 가격: {price:,}원")
+        page.wait_for_timeout(2000)  # 2초 대기
         
     except Exception as e:
         print(f"❌ 에러: {str(e)}")
