@@ -1,0 +1,12 @@
+name: Test API
+on: [push, workflow_dispatch]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - run: python test_api.py
