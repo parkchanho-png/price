@@ -9,5 +9,6 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install -r requirements.txt
-      - run: playwright install          # 👈 이 줄 추가!
+      - run: playwright install
+      - run: sudo playwright install-deps    # 👈 이 줄 추가!
       - run: python test_api.py
