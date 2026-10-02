@@ -6,16 +6,29 @@ def get_price():
     print("🔄 Playwright로 페이지 렌더링 중...")
     
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-first-run',
+                '--no-default-browser-check'
+            ]
+        )
+        
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        
+        # Stealth 모드
+        context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => false})")
+        
+        page = context.new_page()
         
         try:
             page.goto(url, wait_until="networkidle", timeout=30000)
+            page.wait_for_timeout(3000)
             
-            # 👇 렌더링된 페이지에서 가격 찾기
-            page.wait_for_timeout(2000)
-            
-            # 모든 텍스트 가져오기
             all_text = page.locator('body').text_content()
             
             print(f"📊 페이지 텍스트 처음 500자:")
@@ -36,6 +49,7 @@ def get_price():
             return False
         
         finally:
+            context.close()
             browser.close()
 
 if __name__ == "__main__":
