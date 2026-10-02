@@ -9,7 +9,13 @@ def get_price():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            extra_http_headers={
+                "Accept": "application/json",
+                "Accept-Language": "ko-KR,ko;q=0.9",
+                "Referer": "https://mart.baemin.com/goods/detail/29605",
+                "Origin": "https://mart.baemin.com"
+            }
         )
         
         try:
@@ -17,8 +23,7 @@ def get_price():
             
             content = page.locator('body').text_content()
             
-            # 👇 뭐가 반환되는지 확인
-            print(f"📊 반환 내용: {content[:200]}")
+            print(f"📊 반환 내용: {content[:100]}")
             
             data = json.loads(content)
             price = data["data"]["content"][0]["goodsPrice"]
@@ -27,7 +32,7 @@ def get_price():
             return True
             
         except json.JSONDecodeError:
-            print("❌ JSON이 아니라 HTML이 반환됨")
+            print("❌ JSON 파싱 실패")
             return False
         except Exception as e:
             print(f"❌ 에러: {str(e)}")
