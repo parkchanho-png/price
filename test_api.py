@@ -1,45 +1,35 @@
-from playwright.sync_api import sync_playwright
-import json
+import requests
+from bs4 import BeautifulSoup
 
 def get_price():
-    api_url = "https://mart.baemin.com/api/v3/goods?goodsIds=29605"
+    url = "https://mart.baemin.com/goods/detail/29605"
     
-    print("🔄 Playwright로 가격 조회 중...")
+    print("🔄 배민상회 가격 조회 중...")
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            extra_http_headers={
-                "Accept": "application/json",
-                "Accept-Language": "ko-KR,ko;q=0.9",
-                "Referer": "https://mart.baemin.com/goods/detail/29605",
-                "Origin": "https://mart.baemin.com"
-            }
-        )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.encoding = 'utf-8'
         
-        try:
-            page.goto(api_url, wait_until="domcontentloaded", timeout=30000)
-            
-            content = page.locator('body').text_content()
-            
-            print(f"📊 반환 내용: {content[:100]}")
-            
-            data = json.loads(content)
-            price = data["data"]["content"][0]["goodsPrice"]
-            
-            print(f"✅ 가격: {price:,}원")
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 페이지 HTML 출력 (뭐가 있는지 확인용)
+        print(f"📊 페이지 길이: {len(response.text)}")
+        
+        # 전체 텍스트에서 "원" 찾기
+        if "원" in response.text:
+            print("✅ 페이지 로드 성공")
             return True
+        else:
+            print("❌ 페이지 로드 실패")
+            return False
             
-        except json.JSONDecodeError:
-            print("❌ JSON 파싱 실패")
-            return False
-        except Exception as e:
-            print(f"❌ 에러: {str(e)}")
-            return False
-        
-        finally:
-            browser.close()
+    except Exception as e:
+        print(f"❌ 에러: {str(e)}")
+        return False
 
 if __name__ == "__main__":
     get_price()
