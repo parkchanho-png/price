@@ -1,42 +1,42 @@
-import requests
-from bs4 import BeautifulSoup
-import json
+from playwright.sync_api import sync_playwright
 
 def get_price():
     url = "https://mart.baemin.com/goods/detail/29605"
     
-    print("🔄 배민상회 가격 조회 중...")
+    print("🔄 Playwright로 페이지 렌더링 중...")
     
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.encoding = 'utf-8'
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        page = browser.new_page()
         
-        # 👇 HTML 처음 1000자 확인
-        print(f"📊 HTML 처음 1000자:")
-        print(response.text[:1000])
-        print("\n")
-        
-        # JSON 데이터 찾기
-        if "__INITIAL_STATE__" in response.text:
-            print("✅ JSON 데이터 발견!")
-            return True
-        elif "price" in response.text:
-            print("✅ price 발견!")
-            return True
-        elif "가격" in response.text:
-            print("✅ 가격 발견!")
-            return True
-        else:
-            print("❌ 가격 정보 못 찾음")
+        try:
+            page.goto(url, wait_until="networkidle", timeout=30000)
+            
+            # 👇 렌더링된 페이지에서 가격 찾기
+            page.wait_for_timeout(2000)
+            
+            # 모든 텍스트 가져오기
+            all_text = page.locator('body').text_content()
+            
+            print(f"📊 페이지 텍스트 처음 500자:")
+            print(all_text[:500])
+            
+            # "원" 포함된 라인 찾기
+            lines = all_text.split('\n')
+            for line in lines:
+                if '원' in line and any(c.isdigit() for c in line):
+                    print(f"✅ 가격: {line.strip()}")
+                    return True
+            
+            print("❌ 가격을 찾을 수 없음")
             return False
             
-    except Exception as e:
-        print(f"❌ 에러: {str(e)}")
-        return False
+        except Exception as e:
+            print(f"❌ 에러: {str(e)}")
+            return False
+        
+        finally:
+            browser.close()
 
 if __name__ == "__main__":
     get_price()
