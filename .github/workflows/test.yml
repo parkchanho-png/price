@@ -1,5 +1,6 @@
 name: Test API
 on: [push, workflow_dispatch]
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -8,7 +9,17 @@ jobs:
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - run: pip install -r requirements.txt
-      - run: playwright install
-      - run: sudo playwright install-deps    # 👈 이 줄 추가!
-      - run: python test_api.py
+      
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: Install Playwright browsers
+        run: playwright install chromium
+      
+      - name: Install system dependencies
+        run: sudo playwright install-deps chromium
+      
+      - name: Run API test
+        run: python test_api.py
