@@ -1,5 +1,6 @@
 import requests
 from bs4 import BeautifulSoup
+import json
 
 def get_price():
     url = "https://mart.baemin.com/goods/detail/29605"
@@ -14,17 +15,23 @@ def get_price():
         response = requests.get(url, headers=headers, timeout=10)
         response.encoding = 'utf-8'
         
-        soup = BeautifulSoup(response.text, 'html.parser')
+        # 👇 HTML 처음 1000자 확인
+        print(f"📊 HTML 처음 1000자:")
+        print(response.text[:1000])
+        print("\n")
         
-        # 페이지 HTML 출력 (뭐가 있는지 확인용)
-        print(f"📊 페이지 길이: {len(response.text)}")
-        
-        # 전체 텍스트에서 "원" 찾기
-        if "원" in response.text:
-            print("✅ 페이지 로드 성공")
+        # JSON 데이터 찾기
+        if "__INITIAL_STATE__" in response.text:
+            print("✅ JSON 데이터 발견!")
+            return True
+        elif "price" in response.text:
+            print("✅ price 발견!")
+            return True
+        elif "가격" in response.text:
+            print("✅ 가격 발견!")
             return True
         else:
-            print("❌ 페이지 로드 실패")
+            print("❌ 가격 정보 못 찾음")
             return False
             
     except Exception as e:
