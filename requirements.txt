@@ -1,1 +1,4 @@
-# 필요 없음 (빈 파일이거나 주석만)
+playwright
+pandas
+duckduckgo-search
+beautifulsoup4
