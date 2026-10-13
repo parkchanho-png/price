@@ -1,22 +1,16 @@
 {
-  "price_basis": "final_price",
-  "unit_standard": "1000개",
-  "delay_seconds": 2,
-  "products": [
+  "delay_seconds": 3,
+  "queries": [
     {
-      "id": "baemin_24oz",
-      "name": "배민상회 24온스 98파이",
-      "url": "https://mart.baemin.com/goods/detail/29605",
-      "unit": "1000개",
-      "platform": "baemin",
+      "keyword": "24온스 98파이 컵 1000개",
       "active": true
     },
     {
-      "id": "coupang_24oz",
-      "name": "쿠팡 24온스 컵",
-      "url": "https://www.coupang.com/...",
-      "unit": "1000개",
-      "platform": "coupang",
+      "keyword": "24oz 98파이 투명컵 박스",
+      "active": true
+    },
+    {
+      "keyword": "16온스 92파이 아이스컵 1000개",
       "active": false
     }
   ]
