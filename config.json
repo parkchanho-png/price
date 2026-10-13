@@ -1,13 +1,12 @@
 {
-  "delay_seconds": 3,
-  "max_candidates_per_query": 4,
+  "delay_seconds": 2,
   "queries": [
     {
       "keyword": "24온스 98파이 컵 1000개",
       "active": true
     },
     {
-      "keyword": "24oz 98파이 투명컵 박스",
+      "keyword": "24oz 98파이 투명컵",
       "active": true
     }
   ]
