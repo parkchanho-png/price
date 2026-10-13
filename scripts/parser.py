@@ -2,79 +2,65 @@ import re
 from bs4 import BeautifulSoup
 
 def extract_quantity(title: str) -> int:
-    """상품명에서 수량(개수/박스/팩) 추출"""
-    # 1. 1000개, 500입, 20팩 등
+    """상품명에서 수량 추출"""
     match = re.search(r'(\d+)\s*(?:개입|개|입|팩|박스|box|매)', title, re.IGNORECASE)
     if match:
         return int(match.group(1))
-    
-    # 2. x 1000 등 곱하기 표현
     match_x = re.search(r'[xX*]\s*(\d+)', title)
     if match_x:
         return int(match_x.group(1))
-        
     return 1
 
-def parse_coupang_page(html: str, url: str, keyword: str) -> dict | None:
-    """쿠팡 상세 페이지 HTML 파싱 및 단가 계산"""
+def parse_mobile_coupang_search_html(html: str, keyword: str) -> list[dict]:
+    """모바일 쿠팡 검색 결과 HTML 파싱 및 단가 계산"""
     soup = BeautifulSoup(html, "html.parser")
+    candidates = []
     
-    # 1. 상품명 추출
-    title_el = (
-        soup.select_one("h1.prod-buy-header__title") or 
-        soup.select_one("h2.prod-buy-header__title") or 
-        soup.select_one("title")
-    )
-    if not title_el:
-        return None
-    title = title_el.get_text(strip=True).replace("쿠팡! - ", "")
+    # 모바일 쿠팡 검색 결과 상품 리스트 태그
+    items = soup.select("li.search-product, li[class*='product']")
 
-    # 2. 판매 가격 추출
-    price = 0
-    price_selectors = [
-        "span.total-price > strong",
-        "span.prod-sale-price",
-        "span.price-value",
-        "div.prod-price span.price"
-    ]
-    for sel in price_selectors:
-        price_el = soup.select_one(sel)
-        if price_el:
-            digits = re.sub(r'[^\d]', '', price_el.get_text())
-            if digits:
-                price = int(digits)
-                break
-                
-    if price == 0:
-        return None
+    for item in items[:10]:
+        title_el = item.select_one(".name, .title")
+        price_el = item.select_one(".price-value, strong.price")
+        link_el = item.select_one("a")
 
-    # 3. 배송비 추출
-    shipping_fee = 0
-    full_text = soup.get_text()
-    if "무료배송" not in full_text and "로켓배송" not in full_text:
-        fee_match = re.search(r'배송비\s*([0-9,]+)원', full_text)
-        if fee_match:
-            shipping_fee = int(fee_match.group(1).replace(",", ""))
+        if not title_el or not price_el or not link_el:
+            continue
+
+        title = title_el.get_text(strip=True)
+        
+        # 가격 정수 변환
+        price_str = re.sub(r'[^\d]', '', price_el.get_text())
+        if not price_str:
+            continue
+        price = int(price_str)
+
+        # 링크에서 상품 ID 파싱 및 PC버전 상세 URL로 변환
+        raw_href = link_el.get("href", "")
+        match_id = re.search(r'products/(\d+)', raw_href)
+        if match_id:
+            product_url = f"https://www.coupang.com/vp/products/{match_id.group(1)}"
         else:
-            shipping_fee = 3000  # 기본 일반 택배비 보정치
+            product_url = f"https://www.coupang.com{raw_href}" if raw_href.startswith("/") else raw_href
 
-    # 4. 수량 및 개당 단가 산출
-    qty = extract_quantity(title)
-    total_payment = price + shipping_fee
-    unit_price = round(total_payment / qty, 2)
+        # 배송비 판별 (로켓/무료 배송 뱃지가 없으면 기본 3000원 부여)
+        full_text = item.get_text()
+        shipping_fee = 0 if ("무료" in full_text or "로켓" in full_text) else 3000
 
-    # 5. 산출 근거 텍스트 작성
-    if shipping_fee > 0:
+        qty = extract_quantity(title)
+        final_pay = price + shipping_fee
+        unit_price = round(final_pay / qty, 2)
+
         evidence = f"(상품가 {price:,}원 + 배송비 {shipping_fee:,}원) ÷ 추출수량 {qty}개 = 개당 {unit_price:,}원"
-    else:
-        evidence = f"(상품가 {price:,}원 / 무료배송) ÷ 추출수량 {qty}개 = 개당 {unit_price:,}원"
 
-    return {
-        "검색어": keyword,
-        "추천 상품명": title,
-        "개당 단가(원)": unit_price,
-        "결제 금액(원)": total_payment,
-        "추출 수량": qty,
-        "산출 근거": evidence,
-        "상품 링크": url
-    }
+        candidates.append({
+            "검색어": keyword,
+            "추천 상품명": title,
+            "개당 단가(원)": unit_price,
+            "결제 금액(원)": final_pay,
+            "추출 수량": qty,
+            "산출 근거": evidence,
+            "상품 링크": product_url
+        })
+        
+    return candidates
