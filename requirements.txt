@@ -1,4 +1,4 @@
 playwright
 pandas
-duckduckgo-search
 beautifulsoup4
+requests
