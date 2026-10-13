@@ -7,6 +7,7 @@ on:
 
 jobs:
   scrape:
+    # 깃허브 클라우드가 아닌 내 컴퓨터(Self-hosted runner)로 실행을 넘김
     runs-on: self-hosted
     permissions:
       contents: write
@@ -17,33 +18,22 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 파이썬 환경 설정
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      # (중요) Self-hosted runner는 컴퓨터에 이미 설치된 파이썬을 사용하므로 
+      # setup-python 액션이 불필요하여 제거했습니다.
 
       - name: 패키지 설치
         run: |
           pip install -r requirements.txt
+          playwright install chromium
 
       - name: 가격 스크래퍼 실행
         run: |
           python scripts/scraper.py
 
-      - name: 결과 CSV 저장소로 자동 Push
+      - name: 결과 CSV 깃허브로 자동 Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           
-          if [ -f outputs/results.csv ]; then
-            git add outputs/results.csv
-            if git diff --staged --quiet; then
-              echo "변경 사항 없음"
-            else
-              git commit -m "최저가 수집 결과 자동 업데이트 [skip ci]"
-              git pull --rebase origin main
-              git push origin main
-            fi
-          else
-            echo "results.csv 파일이 생성되지 않았습니다."
-          fi
+          git add outputs/results.csv
+          git diff --staged --quiet || (git commit -m "쿠팡 최저가 업데이트 [skip ci]" && git pull --rebase origin main && git push origin main)
