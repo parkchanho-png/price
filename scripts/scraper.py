@@ -29,22 +29,24 @@ def main():
         )
         page = context.new_page()
 
-        for item in config.get("queries", []):
+        for idx, item in enumerate(config.get("queries", [])):
             if not item.get("active", True):
                 continue
 
             keyword = item["keyword"]
+            must_include = item.get("must_include")  # 상품명에 꼭 있어야 하는 단어 (config.json에서 설정)
+            exclude = item.get("exclude")            # 상품명에 있으면 제외할 단어
             print(f"\n[쿠팡 검색 중] 검색어: '{keyword}'")
             encoded_kw = urllib.parse.quote(keyword)
             search_url = f"https://m.coupang.com/nm/search?q={encoded_kw}"
-            
+
             try:
                 page.goto(search_url, wait_until="domcontentloaded", timeout=20000)
-                page.wait_for_timeout(3000) # 상품 리스트가 렌더링될 때까지 충분히 대기
+                page.wait_for_timeout(3000)  # 상품 리스트가 렌더링될 때까지 충분히 대기
                 html = page.content()
-                
-                candidates = parse_mobile_coupang_search_html(html, keyword)
-                
+
+                candidates = parse_mobile_coupang_search_html(html, keyword, must_include, exclude)
+
                 if candidates:
                     candidates.sort(key=lambda x: x["개당 단가(원)"])
                     best_deal = candidates[0]
@@ -53,13 +55,16 @@ def main():
                     print(f"  ✅ 최저가 확정: {best_deal['추천 상품명']}")
                     print(f"  📌 산출 근거: {best_deal['산출 근거']}")
                 else:
-                    print(f"  ❌ '{keyword}' 수집 가능한 매물 없음")
-                    
+                    # 원인 분석용으로 받아온 페이지를 저장 (차단 페이지인지, 태그가 바뀐 건지 확인)
+                    debug_path = OUTPUT_DIR / f"debug_{idx}.html"
+                    debug_path.write_text(html, encoding="utf-8")
+                    print(f"  ❌ '{keyword}' 수집 가능한 매물 없음 (페이지 {len(html):,}자, 저장: {debug_path.name})")
+
             except Exception as e:
                 print(f"  ⚠️ 검색 에러 발생 ({keyword}): {str(e)}")
-            
+
             time.sleep(delay)
-            
+
         browser.close()
 
     # CSV 저장 및 Git push 중단 방지(빈 배열이어도 생성)
