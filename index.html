@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>가격 조사 - 24온스 98파이 컵</title>
+<style>
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--line:#e5e7eb;--card:#f8fafc;--acc:#2563eb;--best:#dcfce7}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--fg:#f1f2f4;--mut:#9aa1ad;--line:#2a2e37;--card:#1a1d24;--acc:#7aa7ff;--best:#143323}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+main{max-width:1000px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 16px}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.box b{display:block;font-size:18px}
+.box span{color:var(--mut);font-size:13px}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:760px}
+th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--card);font-size:13px;color:var(--mut)}
+tr.best td{background:var(--best)}
+td.n{text-align:right;white-space:nowrap}
+small{color:var(--mut)}
+a{color:var(--acc)}
+.bar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+button,label.f{background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:7px 12px;cursor:pointer;font:inherit}
+#msg{color:var(--mut);padding:16px}
+</style>
+</head>
+<body>
+<main>
+<h1>🛍️ 가격 조사</h1>
+<p class="sub">24온스 98파이 컵 · 최종가(배송비 포함) 기준 · 개당 단가 낮은 순</p>
+<div class="bar">
+  <button id="reload">새로고침</button>
+  <label class="f">CSV 파일 직접 열기<input id="file" type="file" accept=".csv" hidden></label>
+  <small id="stamp"></small>
+</div>
+<div id="sum" class="sum"></div>
+<div class="wrap"><table>
+<thead><tr><th>순위</th><th>상품</th><th>결제금액</th><th>수량</th><th>개당 단가</th><th>1,000개 환산</th><th>산출 근거</th></tr></thead>
+<tbody id="rows"></tbody>
+</table><div id="msg"></div></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const won=n=>Math.round(n).toLocaleString("ko-KR")+"원";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+function parseCSV(t){
+  t=t.replace(/^\uFEFF/,"");
+  const rows=[];let row=[],f="",q=false;
+  for(let i=0;i<t.length;i++){
+    const c=t[i];
+    if(q){ if(c==='"'){ if(t[i+1]==='"'){f+='"';i++;} else q=false; } else f+=c; }
+    else if(c==='"') q=true;
+    else if(c===","){row.push(f);f="";}
+    else if(c==="\n"||c==="\r"){ if(c==="\r"&&t[i+1]==="\n")i++; row.push(f);f="";rows.push(row);row=[]; }
+    else f+=c;
+  }
+  if(f||row.length){row.push(f);rows.push(row);}
+  return rows.filter(r=>r.length>1);
+}
+
+function render(text){
+  const rows=parseCSV(text);
+  if(rows.length<2){ $("rows").innerHTML=""; $("sum").innerHTML=""; $("msg").textContent="수집된 결과가 없습니다. scraper.py를 실행해 results.csv를 갱신하세요."; return; }
+  const h=rows[0];
+  const data=rows.slice(1).map(r=>Object.fromEntries(h.map((k,i)=>[k,r[i]||""])))
+    .map(d=>({...d,unit:parseFloat(d["개당 단가(원)"]),pay:parseFloat(d["결제 금액(원)"]),qty:parseFloat(d["추출 수량"])}))
+    .filter(d=>isFinite(d.unit)).sort((a,b)=>a.unit-b.unit);
+  if(!data.length){ $("msg").textContent="표시할 수 있는 가격 데이터가 없습니다."; return; }
+  $("msg").textContent="";
+  const lo=data[0].unit*1000, hi=data[data.length-1].unit*1000, diff=hi-lo;
+  $("sum").innerHTML=
+    `<div class="box"><span>최저가 (1,000개)</span><b>${won(lo)}</b></div>`+
+    `<div class="box"><span>최고가 (1,000개)</span><b>${won(hi)}</b></div>`+
+    `<div class="box"><span>가격차</span><b>${won(diff)}${hi?` (${(diff/hi*100).toFixed(1)}%)`:""}</b></div>`;
+  $("stamp").textContent=data[0]["수집시각"]?`수집시각: ${data[0]["수집시각"]}`:"";
+  $("rows").innerHTML=data.map((d,i)=>{
+    const url=/^https?:\/\//.test(d["상품 링크"])?d["상품 링크"]:"";
+    const name=url?`<a href="${esc(url)}" target="_blank" rel="noopener">${esc(d["추천 상품명"])}</a>`:esc(d["추천 상품명"]);
+    return `<tr class="${i===0?"best":""}"><td>${i+1}</td><td>${name}<br><small>${esc(d["검색어"])}</small></td>`+
+      `<td class="n">${won(d.pay)}</td><td class="n">${d.qty.toLocaleString("ko-KR")}개</td>`+
+      `<td class="n">${d.unit.toLocaleString("ko-KR",{maximumFractionDigits:2})}원</td>`+
+      `<td class="n"><b>${won(d.unit*1000)}</b></td><td><small>${esc(d["산출 근거"])}</small></td></tr>`;
+  }).join("");
+}
+
+async function load(){
+  $("msg").textContent="불러오는 중...";
+  try{
+    const res=await fetch("outputs/results.csv?t="+Date.now());
+    if(!res.ok) throw new Error(res.status);
+    render(await res.text());
+  }catch(e){
+    $("msg").textContent="results.csv를 불러오지 못했어요. 파일로 직접 열었다면 위의 'CSV 파일 직접 열기'를 사용하세요.";
+  }
+}
+$("reload").onclick=load;
+$("file").onchange=e=>{const f=e.target.files[0]; if(f) f.text().then(render);};
+load();
+</script>
+</body>
+</html>
