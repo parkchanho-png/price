@@ -3,12 +3,17 @@ name: Price Scraper
 on:
   push:
     branches: [ main, master ]
+    paths:
+      - "scripts/**"
+      - "config.json"
+      - "requirements.txt"
   workflow_dispatch:
 
 jobs:
   scrape:
-    # 깃허브 클라우드가 아닌 내 컴퓨터(Self-hosted runner)로 실행을 넘김
-    runs-on: self-hosted
+    # GitHub 클라우드 서버에서 실행 (내 컴퓨터가 꺼져 있어도 동작)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 
@@ -18,22 +23,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      # (중요) Self-hosted runner는 컴퓨터에 이미 설치된 파이썬을 사용하므로 
-      # setup-python 액션이 불필요하여 제거했습니다.
+      - name: 파이썬 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
       - name: 패키지 설치
         run: |
           pip install -r requirements.txt
-          playwright install chromium
+          pip install playwright pandas beautifulsoup4
+          playwright install --with-deps chromium
 
       - name: 가격 스크래퍼 실행
         run: |
           python scripts/scraper.py
 
+      - name: 디버그 파일 보관 (매물을 못 찾았을 때 원인 확인용)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: outputs/debug_*.html
+          if-no-files-found: ignore
+
       - name: 결과 CSV 깃허브로 자동 Push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           git add outputs/results.csv
           git diff --staged --quiet || (git commit -m "쿠팡 최저가 업데이트 [skip ci]" && git pull --rebase origin main && git push origin main)
