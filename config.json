@@ -1,17 +1,12 @@
 {
-  "delay_seconds": 2,
-  "queries": [
+  "delay_seconds": 3,
+  "use_coupon_price": false,
+  "products": [
     {
-      "keyword": "24온스 98파이 컵 1000개",
-      "active": true,
-      "must_include": [["24온스", "24oz"], ["98파이", "98mm", "98Φ"]],
-      "exclude": ["뚜껑", "리드", "빨대", "홀더"]
-    },
-    {
-      "keyword": "24oz 98파이 투명컵",
-      "active": true,
-      "must_include": [["24온스", "24oz"], ["98파이", "98mm", "98Φ"]],
-      "exclude": ["뚜껑", "리드", "빨대", "홀더"]
+      "name": "아이팩피앤디 아이스컵 98파이 24온스",
+      "label": "배민상회",
+      "url": "https://mart.baemin.com/goods/detail/808465",
+      "active": true
     }
   ]
 }
