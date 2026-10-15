@@ -12,6 +12,7 @@ on:
 jobs:
   scrape:
     # GitHub 클라우드 서버에서 실행 (내 컴퓨터가 꺼져 있어도 동작)
+    # 브라우저는 Cloudflare Browser Rendering(클라우드 브라우저)을 사용하므로 크롬 설치가 필요 없음
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -31,10 +32,12 @@ jobs:
       - name: 패키지 설치
         run: |
           pip install -r requirements.txt
-          pip install playwright pandas beautifulsoup4
-          playwright install --with-deps chromium
+          pip install pandas beautifulsoup4
 
       - name: 가격 스크래퍼 실행
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
         run: |
           python scripts/scraper.py
 
