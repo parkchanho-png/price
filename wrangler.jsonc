@@ -1,1 +1,13 @@
 
+{
+  "name": "price",
+  "main": "src/index.js",
+  "compatibility_date": "2025-09-01",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public"
+  },
+  "vars": {
+    "CF_ACCOUNT_ID": "b58179434441b44f9b7321fd51d229c3"
+  }
+}
