@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>배민상회 가격 검색</title>
+<style>
+:root{--bg:#fff;--fg:#1c1c1e;--mut:#6b7280;--line:#e5e7eb;--card:#f8fafc;--acc:#2563eb;--best:#dcfce7;--warn:#b45309}
+@media (prefers-color-scheme:dark){:root{--bg:#111318;--fg:#f1f2f4;--mut:#9aa1ad;--line:#2a2e37;--card:#1a1d24;--acc:#7aa7ff;--best:#143323;--warn:#fbbf24}}
+*{box-sizing:border-box}
+body{margin:0;padding:20px;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+main{max-width:980px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+.sub{color:var(--mut);margin:0 0 14px}
+form{display:flex;gap:8px;margin-bottom:8px}
+input[type=text]{flex:1;padding:11px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--fg);font:inherit}
+button{padding:11px 18px;border:0;border-radius:10px;background:var(--acc);color:#fff;font:inherit;cursor:pointer}
+button:disabled{opacity:.5;cursor:wait}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{padding:4px 10px;border:1px solid var(--line);border-radius:99px;background:var(--card);color:var(--fg);font-size:13px;cursor:pointer}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--mut);font-size:13px;margin-bottom:10px}
+.row input{padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);width:130px}
+#info{margin:10px 0;color:var(--mut)}
+#err{color:#dc2626;margin:10px 0}
+.wrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;min-width:720px}
+th,td{padding:10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--card);font-size:13px;color:var(--mut)}
+tr.best td{background:var(--best)}
+td.n{text-align:right;white-space:nowrap}
+small{color:var(--mut)} .warn{color:var(--warn)}
+a{color:var(--acc)}
+details{margin-top:14px;font-size:12px;color:var(--mut)}
+pre{white-space:pre-wrap;word-break:break-all;background:var(--card);padding:10px;border-radius:8px}
+</style>
+</head>
+<body>
+<main>
+<h1>🛍️ 배민상회 가격 검색</h1>
+<p class="sub">말하듯이 입력하면 개당 단가가 낮은 순으로 보여줘요</p>
+
+<form id="f">
+  <input type="text" id="q" placeholder="예) 24oz 98파이 투명컵 1000개 제일 싼 거" autocomplete="off">
+  <button id="go" type="submit">검색</button>
+</form>
+<div class="chips" id="chips"></div>
+<div class="row">
+  <label>접근 키(설정한 경우만) <input type="password" id="key" autocomplete="off"></label>
+  <label><input type="checkbox" id="dbg"> 디버그 보기</label>
+</div>
+
+<div id="err"></div>
+<div id="info"></div>
+<div class="wrap" id="wrap" hidden><table>
+<thead><tr><th>순위</th><th>상품</th><th>판매가</th><th>수량</th><th>개당 단가</th><th>1,000개 환산</th><th>비고</th></tr></thead>
+<tbody id="rows"></tbody></table></div>
+<details id="dd" hidden><summary>디버그 정보</summary><pre id="dpre"></pre></details>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+const won=n=>Math.round(n).toLocaleString("ko-KR")+"원";
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const examples=["24온스 98파이 컵 1000개 제일 싼 거","24oz 98파이 투명컵","16온스 92파이 컵 최저가"];
+try{ $("key").value=localStorage.getItem("price_key")||""; }catch(e){}
+
+$("chips").innerHTML=examples.map(t=>`<span class="chip">${esc(t)}</span>`).join("");
+$("chips").onclick=e=>{ if(e.target.classList.contains("chip")){ $("q").value=e.target.textContent; $("f").requestSubmit(); } };
+
+$("f").onsubmit=async e=>{
+  e.preventDefault();
+  const q=$("q").value.trim(); if(!q) return;
+  const key=$("key").value;
+  try{ localStorage.setItem("price_key",key); }catch(e){}
+  $("go").disabled=true; $("err").textContent=""; $("wrap").hidden=true; $("dd").hidden=true;
+  $("info").textContent="클라우드 브라우저로 배민상회를 검색 중이에요... (10~30초 걸려요)";
+  try{
+    const u=`/api/search?q=${encodeURIComponent(q)}${key?`&key=${encodeURIComponent(key)}`:""}${$("dbg").checked?"&debug=1":""}`;
+    const res=await fetch(u);
+    const d=await res.json();
+    if(!res.ok) throw new Error(d.error||res.status);
+    render(d);
+  }catch(err){ $("info").textContent=""; $("err").textContent="⚠️ "+err.message; }
+  finally{ $("go").disabled=false; }
+};
+
+function render(d){
+  let info=`검색어 <b>${esc(d.keyword)}</b> · 상품 ${d.cardCount}개 확인 · <a href="${esc(d.searchUrl)}" target="_blank" rel="noopener">배민상회에서 보기</a>`;
+  if(d.relaxed) info+=`<br><span class="warn">조건(용량/규격)에 딱 맞는 상품이 없어 전체 결과를 보여줘요.</span>`;
+  if(d.unpriced) info+=`<br><span class="warn">가격·수량을 읽지 못한 상품 ${d.unpriced}개는 제외했어요.</span>`;
+  if(!d.results.length) info+=`<br>표시할 결과가 없어요. '디버그 보기'를 켜고 다시 검색해 보세요.`;
+  $("info").innerHTML=info;
+  $("rows").innerHTML=d.results.map((r,i)=>{
+    const flags=(r.flags||[]).map(f=>`<span class="warn">${esc(f)}</span>`).join("<br>");
+    const cp=r.couponPrice?`<br><small>쿠폰가 ${won(r.couponPrice)}</small>`:"";
+    return `<tr class="${i===0?"best":""}"><td>${i+1}</td>`+
+      `<td><a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.name)}</a></td>`+
+      `<td class="n">${won(r.salePrice)}${cp}</td>`+
+      `<td class="n">${r.qty?r.qty.toLocaleString("ko-KR")+"개":"-"}</td>`+
+      `<td class="n">${r.unit.toLocaleString("ko-KR",{maximumFractionDigits:2})}원</td>`+
+      `<td class="n"><b>${won(r.per1000)}</b></td><td><small>${flags}</small></td></tr>`;
+  }).join("");
+  $("wrap").hidden=!d.results.length;
+  if(d.debug){ $("dpre").textContent=JSON.stringify(d.debug,null,2); $("dd").hidden=false; }
+}
+</script>
+</body>
+</html>
