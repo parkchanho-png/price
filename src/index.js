@@ -32,7 +32,7 @@ function parseQuery(q) {
   const wantsLid = /뚜껑|리드/.test(text);
 
   let keyword = text
-    .replace(/(\d[\d,]*)\s*(?:개입|개|ea|입|매)/gi, " ") // 수량은 개당 단가로 환산하므로 검색어에서 제외
+    .replace(/(\d[\d,]*)\s*(?:개입|개|ea|입|매)/gi, " ")
     .replace(/(제일|가장|젤|아주)?\s*(싼|싸게|싸|저렴한|저렴하게|최저가|최저|저가)\s*(것|거|걸|순으로|순)?/g, " ")
     .replace(/(찾아|검색해|검색|알려|보여|비교해)\s*(줘|줘요|주세요|줄래|봐)?/g, " ")
     .replace(/\s+/g, " ")
@@ -78,7 +78,6 @@ async function renderPage(env, targetUrl) {
 
 // ---------------------------------------------------------------
 // 3. 검색 결과 HTML → 상품 카드(텍스트)
-//    상품 링크(/goods/detail/번호)를 기준으로 다음 상품 링크 전까지를 한 카드로 본다.
 // ---------------------------------------------------------------
 function htmlToText(html) {
   let s = html
@@ -104,18 +103,19 @@ function extractCards(html) {
   for (let i = 1; i < parts.length; i += 2) {
     const id = parts[i];
     const seg = parts[i + 1] || "";
-    map.set(id, ((map.get(id) || "") + "\n" + seg).slice(0, 700));
+    // 카드 텍스트가 잘리지 않도록 길이를 1200자로 확장
+    map.set(id, ((map.get(id) || "") + "\n" + seg).slice(0, 1200));
   }
   const cards = [];
   for (const [id, seg] of map) {
-    const lines = seg.split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean).slice(0, 14);
+    const lines = seg.split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean).slice(0, 16);
     if (lines.length) cards.push({ id, lines });
   }
   return { cards, text };
 }
 
 // ---------------------------------------------------------------
-// 4. 카드 하나에서 가격/수량 읽기
+// 4. 카드 하나에서 가격/수량 읽기 (보완됨)
 // ---------------------------------------------------------------
 function extractQty(text) {
   const c = [];
@@ -129,10 +129,8 @@ function extractQty(text) {
 }
 
 function pickName(lines) {
-  // 가격·할인율·배송·리뷰 같은 줄은 상품명이 아님
-  const skip = /^(?:[\d,.\s]+원?$|\d+%$|리뷰|쿠폰|무료|배송|개당|품절|오늘출발$)/;
+  const skip = /^(?:[\d,.\s]+원?$|\d+%$\vert{}리뷰\vert{}쿠폰\vert{}무료\vert{}배송\vert{}개당\vert{}품절\vert{}오늘출발$)/;
   const cands = lines.slice(0, 12).filter((l) => l.length >= 6 && !skip.test(l));
-  // 규격(온스/파이)이 들어 있는 줄 중 가장 긴 줄을 우선 (브랜드명은 짧아서 제외됨)
   const spec = cands.filter((l) => /온스|oz|파이/i.test(l)).sort((a, b) => b.length - a.length)[0];
   return spec || cands[0] || lines[0];
 }
@@ -141,36 +139,56 @@ function parseCard(card) {
   const full = card.lines.join(" ");
   const name = pickName(card.lines);
 
-  // 판매가: '쿠폰가/개당/배송' 앞까지의 금액 중 마지막 값 (정가 → 할인율 → 판매가 순서)
+  // 1. 판매가 추출
   const cut = full.search(/쿠폰가|개당|배송/);
   const head = cut > 0 ? full.slice(0, cut) : full;
   const prices = [...head.matchAll(new RegExp(`(${NUM})\\s*원`, "g"))].map((m) => toInt(m[1]));
   if (!prices.length) return null;
   const sale = prices[prices.length - 1];
 
+  // 2. 쿠폰가 추출
   const cm = full.match(new RegExp(`쿠폰가\\s*(${NUM})\\s*원`));
   const coupon = cm ? toInt(cm[1]) : null;
 
-  // 사이트가 보여주는 개당 단가 (쿠폰가 뒤에 나오는 것은 쿠폰 기준이라 제외)
-  const couponAt = cm ? full.indexOf(cm[0]) : -1;
-  let refUnit = null;
-  for (const m of full.matchAll(new RegExp(`개당\\s*(${NUM})\\s*원`, "g"))) {
-    if (couponAt < 0 || m.index < couponAt) {
-      refUnit = toInt(m[1]);
-      break;
-    }
-  }
+  // 3. 사이트 표시 기준 단가 (개당 47원 등) - 쿠폰가 유무와 무관하게 정확히 파싱
+  const refUnitMatch = full.match(new RegExp(`개당\\s*(${NUM})\\s*원`));
+  const refUnit = refUnitMatch ? toInt(refUnitMatch[1]) : null;
 
+  // 4. 배송비
   let ship = null;
-  if (/무료\s*배송/.test(full)) ship = 0;
-  else {
+  if (/무료\s*배송/.test(full)) {
+    ship = 0;
+  } else {
     const sm = full.match(new RegExp(`배송비\\s*(${NUM})\\s*원`));
     if (sm) ship = toInt(sm[1]);
   }
 
-  const qtyMatch = full.match(new RegExp(`제공\\s*수량\\s*(${NUM})`));
-  const qty = qtyMatch ? toInt(qtyMatch[1]) : extractQty(name);
+  // 5. 수량 추출 로직 개선 (★ 핵심 수정)
+  let qty = 0;
+  // A. 배민 검색 카드의 "/ 1,000ea", "/ 500개" 패턴 우선 매칭
+  const slashQty = full.match(new RegExp(`[\\/／]\\s*(${NUM})\\s*(?:ea|개|입|매|pcs|줄)`, "i"));
+  if (slashQty) {
+    qty = toInt(slashQty[1]);
+  }
+  // B. 상세 페이지 문구(제공 수량) 확인
+  if (qty <= 0) {
+    const qtyMatch = full.match(new RegExp(`제공\\s*수량\\s*(${NUM})`));
+    if (qtyMatch) qty = toInt(qtyMatch[1]);
+  }
+  // C. 상품명에서 수량 추출
+  if (qty <= 0) {
+    qty = extractQty(name);
+  }
+  // D. 수량이 여전히 0인데 기준 단가와 가격이 있으면 역산 추정 (예: 46,960원 ÷ 개당 47원 = 1,000개)
+  if (qty <= 0 && refUnit && (coupon || sale)) {
+    const basePrice = coupon || sale;
+    const estQty = Math.round(basePrice / refUnit);
+    if (Math.abs(estQty * refUnit - basePrice) / basePrice < 0.05) {
+      qty = estQty;
+    }
+  }
 
+  // 6. 단가 및 플래그 계산
   const flags = [];
   let unit = null;
   if (qty > 0) {
@@ -232,7 +250,7 @@ async function handleSearch(request, env) {
   let matched = parsed.filter((it) => matchesQuery(it, p));
   let relaxed = false;
   if (!matched.length && parsed.length) {
-    matched = parsed; // 조건에 맞는 게 없으면 조건 없이 보여주고 표시
+    matched = parsed;
     relaxed = true;
   }
 
@@ -247,28 +265,7 @@ async function handleSearch(request, env) {
     cardCount: cards.length,
     relaxed,
     unpriced,
-    results: priced.slice(0, 30).map(strip),
+    results: priced.map(strip), // slice(0, 30) 제한 해제하여 전체 반환
   };
 
-  if (url.searchParams.get("debug") === "1") {
-    body.debug = {
-      htmlLength: html.length,
-      textHead: text.replace(/\n+/g, " | ").slice(0, 1500),
-      cards: cards.slice(0, 5).map((c) => ({ id: c.id, text: c.lines.join(" | ").slice(0, 400) })),
-    };
-  }
-  return json(body);
-}
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (url.pathname !== "/api/search") return new Response("Not found", { status: 404 });
-    try {
-      return await handleSearch(request, env);
-    } catch (e) {
-      if (e instanceof HttpError) return json({ error: e.message }, e.status);
-      return json({ error: `처리 중 오류: ${e && e.message ? e.message : e}` }, 500);
-    }
-  },
-};
+  if (url.searchParams.get("debug") ===
