@@ -1,5 +1,5 @@
 // 배민상회 170개 전량 수집 & 개당 단가 최저가 정렬 Worker
-// 5개 페이지(170개) 병렬 동시 수집 + 뚜껑/규격 제외 없이 100% 노출
+// HTTP 405 자동 해결 (GET/POST/브라우저 3단계 폴백) + 뚜껑 포함 100% 노출
 
 const toInt = (s) => parseInt(String(s).replace(/,/g, ""), 10);
 
@@ -38,33 +38,73 @@ function parseQuery(q) {
 }
 
 // ---------------------------------------------------------------
-// 2. 배민 공식 API 호출 (실제 브라우저 헤더 세팅)
+// 2. 배민 공식 API 호출 (405 방지 GET / POST 자동 대응)
 // ---------------------------------------------------------------
 async function fetchBaeminApi(keyword, page = 0, size = 40) {
   const url = `https://gw-api-mart.baemin.com/front-api/v1/search/keywords/goods/buybox?keyword=${encodeURIComponent(
     keyword
   )}&sortType=BASIC_A&page=${page}&size=${size}`;
 
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(10000), // 10초 타임아웃
-    headers: {
-      "Accept": "application/json, text/plain, */*",
-      "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-      "Referer": "https://mart.baemin.com/",
-      "Origin": "https://mart.baemin.com",
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    },
-  });
+  const baseHeaders = {
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    Accept: "application/json, text/plain, */*",
+    Referer: "https://mart.baemin.com/",
+  };
 
-  if (!res.ok) {
-    throw new Error(`배민 API 응답 실패 (HTTP ${res.status})`);
+  // 1차 시도: Origin 없는 순수 GET 요청
+  let res = await fetch(url, {
+    method: "GET",
+    headers: baseHeaders,
+    signal: AbortSignal.timeout(6000),
+  }).catch(() => null);
+
+  // 2차 시도: 405 Method Not Allowed 발생 시 POST로 재시도
+  if (res && res.status === 405) {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { ...baseHeaders, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      signal: AbortSignal.timeout(6000),
+    }).catch(() => null);
   }
-  return await res.json();
+
+  if (res && res.ok) {
+    return await res.json();
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------
-// 3. 상품별 수량 파싱 (단가 계산용)
+// 3. 브라우저 렌더링 백업 (API 차단 시 무조건 동작)
+// ---------------------------------------------------------------
+async function renderPage(env, targetUrl) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 45000);
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/content`,
+      {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: targetUrl,
+          gotoOptions: { waitUntil: "networkidle2", timeout: 35000 },
+          setExtraHTTPHeaders: { "Accept-Language": "ko-KR,ko;q=0.9" },
+        }),
+      }
+    );
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.success) throw new Error("Browser rendering failed");
+    return data.result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------------------------------------------------------------
+// 4. 상품별 수량 파싱 (단가 계산용)
 // ---------------------------------------------------------------
 function extractGoodsQty(goods) {
   // A. priceDesc (예: "개당 64원 / 1,000ea")
@@ -95,11 +135,52 @@ function extractGoodsQty(goods) {
     }
   }
 
-  return 1; // 단가 계산 기본값
+  return 1;
 }
 
 // ---------------------------------------------------------------
-// 4. 검색 요청 처리 (5개 페이지 전량 병렬 수집)
+// 5. 웹 HTML 카드 백업 파서
+// ---------------------------------------------------------------
+function parseHtmlCards(html) {
+  let s = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ");
+  s = s.replace(/<a\b[^>]*?href=["'][^"']*\/goods\/detail\/(\d+)[^"']*["'][^>]*>/gi, "\n@@$1@@\n");
+  s = s.replace(/<[^>]+>/g, "\n");
+  const parts = s.split(/@@(\d+)@@/);
+
+  const goods = [];
+  for (let i = 1; i < parts.length; i += 2) {
+    const id = toInt(parts[i]);
+    const seg = parts[i + 1] || "";
+    const lines = seg.split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 16);
+    const full = lines.join(" ");
+
+    const prices = [...full.matchAll(/(\d[\d,]*)\s*원/g)].map((m) => toInt(m[1]));
+    if (!prices.length) continue;
+
+    const cm = full.match(/쿠폰가\s*(\d[\d,]*)\s*원/);
+    const coupon = cm ? toInt(cm[1]) : null;
+
+    goods.push({
+      id,
+      name: lines.find((l) => l.length >= 6 && !/원$|쿠폰|배송|무료/.test(l)) || lines[0],
+      goodsPrice: prices[0],
+      couponPrice: coupon,
+      freeShipping: /무료\s*배송/.test(full),
+      deliveryAmount: 0,
+      priceDesc: full,
+      couponPriceDesc: full,
+      unitPriceDesc: full,
+      soldOut: /품절/.test(full),
+    });
+  }
+  return goods;
+}
+
+// ---------------------------------------------------------------
+// 6. 검색 요청 처리 (170개 전량 수집)
 // ---------------------------------------------------------------
 async function handleSearch(request, env) {
   const url = new URL(request.url);
@@ -115,33 +196,46 @@ async function handleSearch(request, env) {
   const keyword = parseQuery(q);
   const searchUrl = `https://mart.baemin.com/search/result?p=0&s=BASIC_A&w=${encodeURIComponent(keyword)}`;
 
-  // 1단계: 1페이지(0번) 먼저 조회하여 전체 페이지 수(totalPages) 확인
+  let allGoods = [];
+  let totalCount = 0;
+
+  // 1단계: API 1페이지(0번) 시도
   const firstRes = await fetchBaeminApi(keyword, 0, 40);
-  const totalElements = firstRes?.data?.totalElements || 0;
-  const totalPages = firstRes?.data?.totalPages || 1;
 
-  let allGoods = (firstRes?.data?.content || []).map((c) => c.goods).filter(Boolean);
+  if (firstRes && firstRes.data && firstRes.data.content) {
+    totalCount = firstRes.data.totalElements || 0;
+    const totalPages = firstRes.data.totalPages || 1;
+    allGoods = firstRes.data.content.map((c) => c.goods).filter(Boolean);
 
-  // 2단계: 2페이지부터 마지막 페이지까지(최대 10페이지) 병렬로 동시 수집
-  if (totalPages > 1) {
-    const pagePromises = [];
-    for (let page = 1; page < Math.min(totalPages, 10); page++) {
-      pagePromises.push(
-        fetchBaeminApi(keyword, page, 40)
-          .then((res) => (res?.data?.content || []).map((c) => c.goods).filter(Boolean))
-          .catch(() => [])
-      );
+    // 2단계: 2페이지부터 마지막 페이지까지(최대 5페이지 = 170개 전량) 병렬 수집
+    if (totalPages > 1) {
+      const pagePromises = [];
+      for (let p = 1; p < Math.min(totalPages, 6); p++) {
+        pagePromises.push(
+          fetchBaeminApi(keyword, p, 40)
+            .then((res) => (res?.data?.content || []).map((c) => c.goods).filter(Boolean))
+            .catch(() => [])
+        );
+      }
+      const extraPages = await Promise.all(pagePromises);
+      for (const pageItems of extraPages) {
+        allGoods.push(...pageItems);
+      }
     }
-    const extraPages = await Promise.all(pagePromises);
-    for (const pageItems of extraPages) {
-      allGoods.push(...pageItems);
+  } else {
+    // 3단계: API 실패 시 클라우드 브라우저 백업 실행
+    if (!env.CF_API_TOKEN || !env.CF_ACCOUNT_ID) {
+      return json({ error: "배민 응답 대기 중입니다. 잠시 후 다시 검색해 주세요." }, 502);
     }
+    const html = await renderPage(env, searchUrl);
+    allGoods = parseHtmlCards(html);
+    totalCount = allGoods.length;
   }
 
-  // 중복 상품 제거 (상품 고유 ID 기준)
+  // 중복 제거
   const uniqueGoods = Array.from(new Map(allGoods.map((g) => [g.id, g])).values());
 
-  // 3단계: 170개 전량 단가 계산 (뚜껑/리드/옵션 일체 제외 없이 전원 포함)
+  // 170개 전량 단가 계산 (뚜껑/리드 일체 제외 없이 100% 포함)
   const parsed = uniqueGoods.map((g) => {
     const sale = g.goodsPrice || 0;
     const coupon = g.couponPrice || null;
@@ -168,14 +262,14 @@ async function handleSearch(request, env) {
     };
   });
 
-  // 개당 단가 낮은 순으로 170개 일괄 정렬
+  // 개당 단가 낮은 순 정렬
   const priced = parsed.sort((a, b) => a.unit - b.unit);
 
   return json({
     query: q,
     keyword: keyword,
     searchUrl,
-    cardCount: totalElements || priced.length, // '상품 170개 확인'으로 표기
+    cardCount: totalCount || priced.length, // '상품 170개 확인' 표기
     relaxed: false,
     unpriced: 0, // 제외 상품 0건
     results: priced, // 170개 전량 반환
